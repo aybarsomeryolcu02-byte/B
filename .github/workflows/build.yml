@@ -1,0 +1,72 @@
+name: Build ISO
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+      options: --privileged
+    env:
+      OS_NAME: StarkOS
+    steps:
+      - name: Araclari kur
+        run: |
+          apt-get update
+          apt-get install -y live-build debootstrap xorriso squashfs-tools mtools dosfstools isolinux syslinux-common grub-pc-bin grub-efi-amd64-bin ca-certificates
+
+      - name: Yapilandirma
+        run: |
+          mkdir -p iso && cd iso
+          lb config \
+            --distribution trixie \
+            --architectures amd64 \
+            --linux-flavours amd64 \
+            --archive-areas "main contrib non-free non-free-firmware" \
+            --binary-images iso-hybrid \
+            --bootloaders "syslinux,grub-efi" \
+            --debian-installer none \
+            --memtest none \
+            --iso-application "$OS_NAME" \
+            --iso-publisher "$OS_NAME" \
+            --iso-volume "$OS_NAME" \
+            --bootappend-live "boot=live components quiet locales=tr_TR.UTF-8 keyboard-layouts=tr timezone=Europe/Istanbul"
+
+          mkdir -p config/package-lists config/archives config/hooks/normal
+
+          cat > config/package-lists/stark.list.chroot <<'EOF'
+          kde-plasma-desktop
+          sddm
+          plasma-nm
+          network-manager
+          konsole
+          dolphin
+          kate
+          ark
+          firefox-esr
+          pipewire-audio
+          flatpak
+          plasma-discover-backend-flatpak
+          sudo
+          locales
+          keyboard-configuration
+          console-setup
+          firmware-linux
+          firmware-misc-nonfree
+          firmware-realtek
+          firmware-iwlwifi
+          firmware-amd-graphics
+          mesa-vulkan-drivers
+          libgl1-mesa-dri
+          mesa-utils
+          vulkan-tools
+          gamemode
+          calamares
+          calamares-settings-debian
+          EOF
+
+          echo "deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware" > config/archives/backports.list.chroot
+          cp config/archives/backports.list.chroot config/archives/backports.list.binary
+          cat > config/archives/backports.pref.chroot <
