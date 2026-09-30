@@ -10,14 +10,14 @@ jobs:
       image: debian:trixie
       options: --privileged
     env:
-      OS_NAME: StarkOS
+      OS_NAME: StarkOS   # Sistem adı, istediğin gibi değiştir
     steps:
-      - name: Araclari kur
+      - name: Araçları kur
         run: |
           apt-get update
           apt-get install -y live-build debootstrap xorriso squashfs-tools mtools dosfstools isolinux syslinux-common grub-pc-bin grub-efi-amd64-bin ca-certificates
 
-      - name: Yapilandirma
+      - name: Yapılandırma
         run: |
           mkdir -p iso && cd iso
           lb config \
@@ -36,6 +36,7 @@ jobs:
 
           mkdir -p config/package-lists config/archives config/hooks/normal
 
+          # Paket listesi
           cat > config/package-lists/stark.list.chroot <<'EOF'
           kde-plasma-desktop
           sddm
@@ -65,8 +66,16 @@ jobs:
           gamemode
           calamares
           calamares-settings-debian
+          libreoffice
+          papirus-icon-theme
+          arc-theme
+          fonts-firacode
+          chromium
+          synaptic
+          snapd
           EOF
 
+          # Backports: daha yeni kernel ve Mesa (oyun performansi icin)
           echo "deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware" > config/archives/backports.list.chroot
           cp config/archives/backports.list.chroot config/archives/backports.list.binary
           cat > config/archives/backports.pref.chroot <<'EOF'
@@ -76,6 +85,7 @@ jobs:
           EOF
           cp config/archives/backports.pref.chroot config/archives/backports.pref.binary
 
+          # Steam + 32-bit destek
           cat > config/hooks/normal/0100-gaming.hook.chroot <<'EOF'
           #!/bin/sh
           set -e
@@ -87,9 +97,29 @@ jobs:
           apt-get install -y steam-installer mangohud libgl1-mesa-dri:i386 mesa-vulkan-drivers:i386
           EOF
 
+          # Sistem adi
           cat > config/hooks/normal/0200-brand.hook.chroot <<EOF
           #!/bin/sh
           sed -i --follow-symlinks 's/^PRETTY_NAME=.*/PRETTY_NAME="$OS_NAME"/' /etc/os-release
+          EOF
+
+          # Snap servisini etkinlestir
+          cat > config/hooks/normal/0300-snap.hook.chroot <<'EOF'
+          #!/bin/sh
+          set -e
+          systemctl enable snapd.socket || true
+          systemctl enable snapd.apparmor || true
+          EOF
+
+          # Varsayilan tema: Papirus + Arc-Dark, tum kullanicilar icin
+          mkdir -p config/includes.chroot/etc/skel/.config
+          cat > config/includes.chroot/etc/skel/.config/kdeglobals <<'EOF'
+          [Icons]
+          Theme=Papirus-Dark
+
+          [General]
+          ColorScheme=ArcDark
+          widgetStyle=Breeze
           EOF
 
           chmod +x config/hooks/normal/*
