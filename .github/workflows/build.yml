@@ -10,14 +10,17 @@ jobs:
       image: debian:trixie
       options: --privileged
     env:
-      OS_NAME: StarkOS   # Sistem adı, istediğin gibi değiştir
+      OS_NAME: AyLinux
     steps:
-      - name: Araçları kur
+      - name: Depoyu cek (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Araclari kur
         run: |
           apt-get update
-          apt-get install -y live-build debootstrap xorriso squashfs-tools mtools dosfstools isolinux syslinux-common grub-pc-bin grub-efi-amd64-bin ca-certificates
+          apt-get install -y live-build debootstrap xorriso squashfs-tools mtools dosfstools isolinux syslinux-common grub-pc-bin grub-efi-amd64-bin ca-certificates plymouth plymouth-themes
 
-      - name: Yapılandırma
+      - name: Yapilandirma
         run: |
           mkdir -p iso && cd iso
           lb config \
@@ -32,12 +35,12 @@ jobs:
             --iso-application "$OS_NAME" \
             --iso-publisher "$OS_NAME" \
             --iso-volume "$OS_NAME" \
-            --bootappend-live "boot=live components quiet locales=tr_TR.UTF-8 keyboard-layouts=tr timezone=Europe/Istanbul"
+            --bootappend-live "boot=live components quiet splash plymouth.ignore-serial-consoles locales=tr_TR.UTF-8 keyboard-layouts=tr timezone=Europe/Istanbul"
 
           mkdir -p config/package-lists config/archives config/hooks/normal
 
           # Paket listesi
-          cat > config/package-lists/stark.list.chroot <<'EOF'
+          cat > config/package-lists/aylinux.list.chroot <<'EOF'
           kde-plasma-desktop
           sddm
           plasma-nm
@@ -48,6 +51,10 @@ jobs:
           ark
           firefox-esr
           pipewire-audio
+          wireplumber
+          vorbis-tools
+          sox
+          libsox-fmt-all
           flatpak
           plasma-discover-backend-flatpak
           sudo
@@ -73,6 +80,8 @@ jobs:
           chromium
           synaptic
           snapd
+          plymouth
+          plymouth-themes
           EOF
 
           # Backports: daha yeni kernel ve Mesa (oyun performansi icin)
@@ -97,10 +106,11 @@ jobs:
           apt-get install -y steam-installer mangohud libgl1-mesa-dri:i386 mesa-vulkan-drivers:i386
           EOF
 
-          # Sistem adi
+          # Sistem adi (AyLinux)
           cat > config/hooks/normal/0200-brand.hook.chroot <<EOF
           #!/bin/sh
           sed -i --follow-symlinks 's/^PRETTY_NAME=.*/PRETTY_NAME="$OS_NAME"/' /etc/os-release
+          sed -i --follow-symlinks 's/^NAME=.*/NAME="$OS_NAME"/' /etc/os-release
           EOF
 
           # Snap servisini etkinlestir
@@ -111,16 +121,74 @@ jobs:
           systemctl enable snapd.apparmor || true
           EOF
 
-          # Varsayilan tema: Papirus + Arc-Dark, tum kullanicilar icin
-          mkdir -p config/includes.chroot/etc/skel/.config
-          cat > config/includes.chroot/etc/skel/.config/kdeglobals <<'EOF'
-          [Icons]
-          Theme=Papirus-Dark
+          # Plymouth: AyLinux Karanlik Mecha-Pars ve Glow Efekti
+          cat > config/hooks/normal/0400-plymouth.hook.chroot <<'EOF'
+          #!/bin/sh
+          set -e
+          mkdir -p /usr/share/plymouth/themes/aylinux
+          cat > /usr/share/plymouth/themes/aylinux/aylinux.plymouth <<'PLMOUTH_CFG'
+[Plymouth Theme]
+Name=AyLinux Glow
+Description=AyLinux Mecha-Pars Dark Boot
+ModuleName=glow
 
-          [General]
-          ColorScheme=ArcDark
-          widgetStyle=Breeze
+[glow]
+NumberOfGlowSteps=24
+PLMOUTH_CFG
+          plymouth-set-default-theme -R aylinux || true
           EOF
+
+          # Kapanis Sesi Servisi (Systemd Shutdown)
+          cat > config/hooks/normal/0500-shutdown-sound.hook.chroot <<'EOF'
+          #!/bin/sh
+          set -e
+          cat > /etc/systemd/system/aylinux-shutdown-sound.service <<'SVC'
+[Unit]
+Description=AyLinux Kapanis Sesi (Gicirdayan Kapi)
+DefaultDependencies=no
+Before=poweroff.target halt.target reboot.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "play /usr/share/sounds/aylinux/shutdown-sound.ogg || ogg123 /usr/share/sounds/aylinux/shutdown-sound.ogg || true"
+
+[Install]
+WantedBy=poweroff.target reboot.target halt.target
+SVC
+          systemctl enable aylinux-shutdown-sound.service || true
+          EOF
+
+          # Varsayilan tema: Papirus-Dark + Arc-Dark + Giris Kahkahasi
+          mkdir -p config/includes.chroot/etc/skel/.config/autostart
+          mkdir -p config/includes.chroot/usr/share/sounds/aylinux
+
+          cat > config/includes.chroot/etc/skel/.config/kdeglobals <<'EOF'
+[Icons]
+Theme=Papirus-Dark
+
+[General]
+ColorScheme=ArcDark
+widgetStyle=Breeze
+EOF
+
+          # Giriste Thriller Kahkahasini Oynatan Autostart
+          cat > config/includes.chroot/etc/skel/.config/autostart/aylinux-login-sound.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=AyLinux Login Sound
+Exec=sh -c "sleep 1 && (play /usr/share/sounds/aylinux/boot-sound.ogg || ogg123 /usr/share/sounds/aylinux/boot-sound.ogg || paplay /usr/share/sounds/aylinux/boot-sound.ogg)"
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+
+          # Eger assets altinda sesler varsa kopyala
+          if [ -f ../assets/boot-sound.ogg ]; then
+            cp ../assets/boot-sound.ogg config/includes.chroot/usr/share/sounds/aylinux/boot-sound.ogg
+          fi
+          if [ -f ../assets/shutdown-sound.ogg ]; then
+            cp ../assets/shutdown-sound.ogg config/includes.chroot/usr/share/sounds/aylinux/shutdown-sound.ogg
+          fi
 
           chmod +x config/hooks/normal/*
 
